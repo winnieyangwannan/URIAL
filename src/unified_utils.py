@@ -54,6 +54,7 @@ def apply_template(chat_history, model_name, urial=None):
             print("ERROR: model_name not supported")
         for chat_id, chat in enumerate(chats):
             conv.append_message(conv.roles[chat_id%2], chat)
+        print(conv)
         conv.append_message(conv.roles[1], None)
         model_inputs.append(conv.get_prompt())
     return model_inputs
