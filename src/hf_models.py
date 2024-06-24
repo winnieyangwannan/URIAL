@@ -96,7 +96,7 @@ class ModelManager:
 
 class DecoderOnlyModelManager(ModelManager):
     
-    def __init__(self, model_path, model_name, cache_dir=None, bf16=False, int8=False, bnb4=False, gptq=False, adapt_mode=None, adapt_ckpt=None):
+    def __init__(self, model_path, model_name, cache_dir=None, bf16=False, int8=False, bnb4=False, gptq=False, adapt_mode=None, adapt_ckpt=None,hf_token=None):
         super().__init__(model_path, model_name)
         self.cache_dir = cache_dir
         self.bf16 = bf16
@@ -105,6 +105,7 @@ class DecoderOnlyModelManager(ModelManager):
         self.gptq = gptq
         self.adapt_mode = adapt_mode
         self.adapt_ckpt = adapt_ckpt
+        self.hf_token = hf_token
  
     
     
@@ -129,8 +130,9 @@ class DecoderOnlyModelManager(ModelManager):
         if "@" in self.model_path:
             model_path, revision = model_path.split("@")
         else:
-            revision = None         
-        self.tokenizer = AutoTokenizer.from_pretrained(model_path, revision=revision, trust_remote_code=True, cache_dir=self.cache_dir, padding_side="left")
+            revision = None
+        # self.cache_dir = None
+        self.tokenizer = AutoTokenizer.from_pretrained(model_path, token=self.hf_token, revision=revision, trust_remote_code=True, cache_dir=self.cache_dir, padding_side="left")
         self.special_token_flags = [True, False]
 
         
@@ -141,7 +143,8 @@ class DecoderOnlyModelManager(ModelManager):
             # config.init_device = 'cuda:0' # For fast initialization directly on GPU!
             self.model = AutoModelForCausalLM.from_pretrained(model_path, revision=revision, trust_remote_code=True, device_map="auto", 
                                                             torch_dtype=torch.bfloat16, 
-                                                            cache_dir=self.cache_dir)
+                                                            cache_dir=self.cache_dir,
+                                                            token = self.hf_token)
             # .to(device_str)
         elif self.int8:
             device_map = {
@@ -157,7 +160,8 @@ class DecoderOnlyModelManager(ModelManager):
             self.model = AutoModelForCausalLM.from_pretrained(model_path, revision=revision, trust_remote_code=True, 
                                                               device_map=device_map, 
                                                               quantization_config=quantization_config, 
-                                                              cache_dir=self.cache_dir)            
+                                                              cache_dir=self.cache_dir,
+                                                              token=self.hf_token)
         elif self.bnb4:
             bnb_config = BitsAndBytesConfig(
                 load_in_4bit=True,
@@ -166,21 +170,29 @@ class DecoderOnlyModelManager(ModelManager):
                 bnb_4bit_use_double_quant=True,
             )
             self.model = AutoModelForCausalLM.from_pretrained(model_path, revision=revision, trust_remote_code=True, device_map="auto", 
-                                                              quantization_config=bnb_config, cache_dir=self.cache_dir)
+                                                              quantization_config=bnb_config, cache_dir=self.cache_dir,
+                                                              token=self.hf_token)
         elif self.gptq:
             from auto_gptq import exllama_set_max_input_length
-            self.model = AutoModelForCausalLM.from_pretrained(model_path, revision="main", torch_dtype=torch.float16, device_map="auto", trust_remote_code=True, cache_dir=self.cache_dir)            
+            self.model = AutoModelForCausalLM.from_pretrained(model_path, revision="main", torch_dtype=torch.float16, device_map="auto",
+                                                              trust_remote_code=True, cache_dir=self.cache_dir,
+                                                              token=self.hf_token)
             if "llama" in model_path.lower():
                 self.model = exllama_set_max_input_length(self.model, 4096)
         else: 
             torch_dtype = torch.float16 
-            self.model = AutoModelForCausalLM.from_pretrained(model_path, revision=revision, trust_remote_code=True, device_map="auto", cache_dir=self.cache_dir, torch_dtype=torch_dtype)
+            self.model = AutoModelForCausalLM.from_pretrained(model_path, revision=revision, trust_remote_code=True, device_map="auto",
+                                                              cache_dir=self.cache_dir, torch_dtype=torch_dtype,
+                                                              token=self.hf_token)
         
         print(f"(initial) self.tokenizer.pad_token_id={self.tokenizer.pad_token_id}")
+        # self.tokenizer.pad_token_id = None,  self.tokenizer.pad_token_id = None
         if self.tokenizer.pad_token_id is None:
-            self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
+            self.tokenizer.pad_token_id = self.tokenizer.eos_token_id # self.tokenizer.pad_token_id = None
         self.tokenizer.padding_side = "left"
         print(f"(updated) self.tokenizer.pad_token_id={self.tokenizer.pad_token_id}")
+        # (initial) self.tokenizer.pad_token_id=None
+        # (updated) self.tokenizer.pad_token_id=None
         self.model.eval()
  
         print("model device:", self.model.device) 
@@ -250,37 +262,35 @@ class DecoderOnlyModelManager(ModelManager):
             padding = True 
             # print("Enable padding.")
         else:
-            padding = False
+            padding = False # padding = False
         
-        n = 1 if args.num_outputs < 0 else args.num_outputs
+        n = 1 if args.num_outputs < 0 else args.num_outputs #n =1
         if args.num_outputs < 0:
             input_data = [in_text for _ in range(n) for in_text in input_data]
-    
-        inputs = self.tokenizer(input_data, return_tensors="pt", add_special_tokens=self.special_token_flags[0], padding=padding)
-        _, prefix_length = inputs["input_ids"].shape 
-         
-        
-        
+        # self.special_token_flags[0] = True
+        inputs = self.tokenizer(input_data, return_tensors="pt", add_special_tokens=self.special_token_flags[0], padding=padding) # padding = True
+        _, prefix_length = inputs["input_ids"].shape  # 1176
+
+        # eof_strings = ['# Query', '# User']
         stopping_criteria = StoppingCriteriaList([EndOfFunctionCriteria(start_length=prefix_length, eof_strings=eof_strings, tokenizer=self.tokenizer)])
         
-         
-        low_memory = False 
+        low_memory = False
         if args.penalty_alpha > 0:
             # low_memory = True  # if the memory is not enough for you
             pass 
         outputs = self.model.generate(
                         input_ids=inputs['input_ids'].to(device), 
                         attention_mask=inputs['attention_mask'].to(device),
-                        pad_token_id=self.tokenizer.pad_token_id, 
-                        do_sample=args.do_sample, 
-                        top_p=args.top_p, top_k=args.top_k, 
-                        temperature=args.temperature,
-                        repetition_penalty=args.repetition_penalty, 
-                        no_repeat_ngram_size=args.no_repeat_ngram_size, 
-                        length_penalty=args.length_penalty, 
-                        num_return_sequences=n,
+                        pad_token_id=self.tokenizer.pad_token_id,  # None
+                        do_sample=args.do_sample, # True
+                        top_p=args.top_p, top_k=args.top_k,  # top p = 1.0,top_k = None
+                        temperature=args.temperature, # 0.3
+                        repetition_penalty=args.repetition_penalty, # 1.0
+                        no_repeat_ngram_size=args.no_repeat_ngram_size, #0
+                        length_penalty=args.length_penalty, #1.0
+                        num_return_sequences=n, #
                         num_beams=1 if args.do_sample else max(args.beam_size, n),
-                        low_memory =low_memory,
+                        low_memory=low_memory,
                         # num_beam_groups= 1 if args.do_sample else n,
                         # diversity_penalty= 0.0 if args.do_sample else 10.0,
                         max_new_tokens=args.max_output_tokens, # for the outputs
@@ -290,7 +300,8 @@ class DecoderOnlyModelManager(ModelManager):
                         # sequence_bias=sequence_bias,
                         
                     )   
-        # decoded_outputs = [self.tokenizer.decode(y).strip() for y in outputs]    
+        # decoded_outputs = [self.tokenizer.decode(y).strip() for y in outputs]
+        # self.special_token_flags[1] = False
         decoded_outputs = [self.tokenizer.decode(y[prefix_length:], skip_special_tokens=self.special_token_flags[1]) for y in outputs]    
         
         decoded_outputs = [decoded_outputs[j:j+n] for j in range(0, len(decoded_outputs), n)]
@@ -307,7 +318,7 @@ class DecoderOnlyModelManager(ModelManager):
         
         decoded_outputs = cleaned_decoded_outputs
 
-        if self.adapt_mode in ["prefix", "retrieve+prefix"]:
+        if self.adapt_mode in ["prefix", "retrieve+prefix"]: # self.adapt_mode
             decoded_outputs_with_prefixes = []
             for prefix, outputs in zip(prefixes, decoded_outputs):
                 tmp_otuputs = [prefix + " " + o for o in outputs]

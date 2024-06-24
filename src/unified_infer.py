@@ -26,19 +26,21 @@ def parse_args():
     parser.add_argument('--mt_turn', default=-1, type=int)
     parser.add_argument('--mt_turn1_result', default=None, type=str)
     
-    parser.add_argument('--batch_size', default=16, type=int)
+    parser.add_argument('--batch_size', default=1, type=int)
     parser.add_argument('--num_outputs', default=1, type=int)
     parser.add_argument('--top_p',default=1, type=float)
     parser.add_argument('--temperature',default=0, type=float)
     parser.add_argument('--repetition_penalty',default=1.1, type=float)
     parser.add_argument('--max_tokens',default=2048, type=int)
     parser.add_argument('--start_index',default=0, type=int) # 0 means from the beginning of the list
-    parser.add_argument('--end_index',default=1, type=int) # -1 means to the end of the list
+    parser.add_argument('--end_index',default=2, type=int) # -1 means to the end of the list
     parser.add_argument('--filepath',default="auto", type=str)  
     parser.add_argument('--overwrite', action='store_true')
     parser.add_argument('--no_repeat_ngram_size', default=0, type=int)
     parser.add_argument('--hf_bf16', action='store_true')
     parser.add_argument('--hf_gptq', action='store_true')
+    parser.add_argument('--hf_token', action=None)
+
     return parser.parse_args()
 
  
@@ -46,23 +48,23 @@ def parse_args():
 if __name__ == "__main__":
     args = parse_args()     
     
-    # #Load the model
-    # print("loading model!")
-    # if args.tokenizer_name == "auto":
-    #     args.tokenizer_name = args.model_name
-    # if args.engine == "vllm":
-    #     from vllm import LLM, SamplingParams
-    #     llm = LLM(model=args.model_name, tokenizer=args.tokenizer_name, tensor_parallel_size=args.tensor_parallel_size, download_dir=args.download_dir, dtype=args.dtype, tokenizer_mode=args.tokenizer_mode, trust_remote_code=True)
-    # elif args.engine == "openai":
-    #     pass
-    # elif args.engine == "hf":
-    #     llm = DecoderOnlyModelManager(args.model_name, args.model_name, cache_dir=args.download_dir,
-    #                                 bf16=args.hf_bf16, gptq=args.hf_gptq)
-    #     llm.load_model()
-    #
+    #Load the model
+    print("loading model!")
+    if args.tokenizer_name == "auto":
+        args.tokenizer_name = args.model_name
+    if args.engine == "vllm":
+        from vllm import LLM, SamplingParams
+        llm = LLM(model=args.model_name, tokenizer=args.tokenizer_name, tensor_parallel_size=args.tensor_parallel_size, download_dir=args.download_dir, dtype=args.dtype, tokenizer_mode=args.tokenizer_mode, trust_remote_code=True)
+    elif args.engine == "openai":
+        pass
+    elif args.engine == "hf":
+        llm = DecoderOnlyModelManager(args.model_name, args.model_name, cache_dir=args.download_dir,
+                                    bf16=args.hf_bf16, gptq=args.hf_gptq, hf_token=args.hf_token)
+        llm.load_model()
+
     print("loading dataset!")
     # Data loading 
-    id_strs, chat_history, model_inputs, metadata = load_eval_data(args) 
+    id_strs, chat_history, model_inputs, metadata = load_eval_data(args)
     
     # Decide the output filepath
     if args.filepath == "auto":
@@ -107,7 +109,7 @@ if __name__ == "__main__":
             formatted_outputs = json.load(f)
         for output_item in formatted_outputs:
             outputs.append([output_item["output"]] if type(output_item["output"]) == str else output_item["output"])
-    num_skipped = len(outputs)
+    num_skipped = len(outputs) # num_skipped = 0
     print(f"We skipped the first {num_skipped} examples")
     
     
@@ -131,9 +133,9 @@ if __name__ == "__main__":
                 "top_p": args.top_p,
                 "temperature": args.temperature,
                 "repitition_penalty": args.repetition_penalty,
-                "eof_strings": "|".join(stop_words),
-                "max_output_tokens": args.max_tokens,
-                "no_repeat_ngram_size": args.no_repeat_ngram_size,
+                "eof_strings": "|".join(stop_words), #'# Query|# User'
+                "max_output_tokens": args.max_tokens, #2048
+                "no_repeat_ngram_size": args.no_repeat_ngram_size, #0
             }
             batch_outputs = llm.infer_generate(batch_inputs, args=sampling_params)
             outputs.extend(batch_outputs) # TODO: enbale multiple generation 
