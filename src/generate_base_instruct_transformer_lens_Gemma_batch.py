@@ -138,7 +138,7 @@ def get_generations(
 
 intervention_generations = get_generations(model,
                                            harmless_inst_train[:N_INST_TEST],
-                                           tokenize_instructions_fn,
+                                           tokenize_instructions_fn_urial,
                                            fwd_hooks=[],
                                            batch_size=batch_size)
 

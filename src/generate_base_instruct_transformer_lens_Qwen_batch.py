@@ -27,6 +27,8 @@ from sklearn.decomposition import PCA
 #%%
 max_new_tokens = 500
 N_INST_TEST = 10
+batch_size = 2
+
 #%%
 # 1. Load Model
 MODEL_PATH = 'Qwen/Qwen-1_8B'
@@ -70,16 +72,20 @@ urial_instruct = '# Instruction\n\nBelow is a list of conversations between a hu
 def tokenize_instructions_qwen_chat(
     tokenizer: AutoTokenizer,
     instructions: List[str],
-    urial= False
+    instruct= 'base'
 ) -> Int[Tensor, 'batch_size seq_len']:
-    if urial == False:
+    if instruct == 'qa':
         prompts = ['\n```\n\n# Query:\n```\n' + instruction + '\n```\n\n# Answer:\n```\n' for instruction in instructions]
-    else:
+    elif instruct == 'urial':
         prompts = [urial_instruct + '\n```\n\n# Query:\n```\n' + instruction + '\n```\n\n# Answer:\n```\n' for instruction in instructions]
+    elif instruct == 'base':
+        prompts = [instruction for instruction in instructions]
+
     return tokenizer(prompts, padding=True,truncation=False, return_tensors="pt").input_ids
 
-tokenize_instructions_fn = functools.partial(tokenize_instructions_qwen_chat, tokenizer=model.tokenizer, urial=False)
-tokenize_instructions_fn_urial = functools.partial(tokenize_instructions_qwen_chat, tokenizer=model.tokenizer,urial=True)
+tokenize_instructions_fn = functools.partial(tokenize_instructions_qwen_chat, tokenizer=model.tokenizer, instruct='base')
+tokenize_instructions_fn_qa = functools.partial(tokenize_instructions_qwen_chat, tokenizer=model.tokenizer,instruct='qa')
+tokenize_instructions_fn_urial = functools.partial(tokenize_instructions_qwen_chat, tokenizer=model.tokenizer,instruct='urial')
 
 #%%
 
@@ -106,16 +112,36 @@ def get_generations(
     return generations
 
 
-intervention_generations = get_generations(model, harmless_inst_test[:N_INST_TEST], tokenize_instructions_fn_urial, fwd_hooks=[])
-baseline_generations = get_generations(model, harmless_inst_test[:N_INST_TEST], tokenize_instructions_fn, fwd_hooks=[])
+intervention_generations = get_generations(model,
+                                           harmless_inst_train[:N_INST_TEST],
+                                           tokenize_instructions_fn_urial,
+                                           fwd_hooks=[],
+                                           batch_size=batch_size)
+
+qa_generations = get_generations(model,
+                                 harmless_inst_train[:N_INST_TEST],
+                                 tokenize_instructions_fn_qa,
+                                 fwd_hooks=[],
+                                 batch_size=batch_size)
+
+baseline_generations = get_generations(model,
+                                       harmless_inst_train[:N_INST_TEST],
+                                       tokenize_instructions_fn,
+                                       fwd_hooks=[],
+                                       batch_size=batch_size)
 
 #%%
-# 5.Print Result
+# 7. Print Results
 
 for i in range(N_INST_TEST):
-    print(f"INSTRUCTION {i}: {repr(harmless_inst_test[i])}")
+    print(f"INSTRUCTION {i}: {repr(harmless_inst_train[i])}")
     print(Fore.GREEN + f"BASELINE COMPLETION:")
     print(textwrap.fill(repr(baseline_generations[i]), width=100, initial_indent='\t', subsequent_indent='\t'))
-    print(Fore.RED + f"URIAL COMPLETION:")
+    print(Fore.RED + f"QA COMPLETION:")
+    print(textwrap.fill(repr(qa_generations[i]), width=100, initial_indent='\t', subsequent_indent='\t'))
+    print(Fore.RED + f"INTERVENTION COMPLETION:")
     print(textwrap.fill(repr(intervention_generations[i]), width=100, initial_indent='\t', subsequent_indent='\t'))
     print(Fore.RESET)
+
+
+
