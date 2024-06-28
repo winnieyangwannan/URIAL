@@ -18,6 +18,7 @@ from transformers import AutoTokenizer
 from jaxtyping import Float, Int
 from colorama import Fore
 from sklearn.model_selection import train_test_split
+from transformers import AutoTokenizer, AutoModelForCausalLM
 
 import numpy as np
 
@@ -25,20 +26,59 @@ from plotly.subplots import make_subplots
 import plotly.graph_objects as go
 from sklearn.decomposition import PCA
 #%%
+hf_token = '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'
 max_new_tokens = 500
 N_INST_TEST = 10
+batch_size=2
+
 #%%
 # 1. Load Model
-MODEL_PATH = 'Qwen/Qwen-1_8B'
-print(f"model: {MODEL_PATH}")
+# 'meta-llama/Llama-2-7b-chat-hf'
+model_path ="/gpfs/data/buzsakilab/wy547/DATA/Llama/Llama_2/Llama-2-7b-hf"
+model_name =  'meta-llama/Llama-2-7b-hf'
+
+print(f"model: {model_name}")
 DEVICE = 'cuda'
-model = HookedTransformer.from_pretrained_no_processing(
-    MODEL_PATH,
-    device=DEVICE,
-    dtype=torch.float16,
-    default_padding_side='left',
-    fp16=True
-)
+# model = HookedTransformer.from_pretrained_no_processing(
+#     MODEL_PATH,
+#     device=DEVICE,
+#     dtype=torch.float16,
+#     default_padding_side='left',
+#     fp16=True
+# )
+# quantization_config = BitsAndBytesConfig(load_in_4bit=True)
+inference_dtype = torch.float32
+
+tokenizer = AutoTokenizer.from_pretrained(model_path,
+                                          force_download=True,
+                                          trust_remote_code=True)
+tokenizer.pad_token_id = tokenizer.eos_token_id  # eos_token_id=50256
+
+if "gpt" in model_name:
+    tokenizer.padding_side = 'left'
+
+
+print("Loading with quantization...")
+hf_model = AutoModelForCausalLM.from_pretrained(model_path,
+                                                device_map="auto",
+                                                torch_dtype=inference_dtype,
+                                                force_download=True,
+                                                trust_remote_code=True)
+                                                # quantization_config=quantization_config) #torch_dtype=inference_dtype,
+#quantization_config = quantization_config,
+#torch_dtype = inference_dtype
+model = HookedTransformer.from_pretrained(model_name,
+                                             hf_model=hf_model,
+                                             dtype=inference_dtype,
+                                             fold_ln=False,
+                                             fold_value_biases=False,
+                                             center_writing_weights=False,
+                                             center_unembed=False,
+                                             tokenizer=tokenizer,
+                                             )
+
+
+
 #%%
 # 2. Load Dataset
 
@@ -70,16 +110,20 @@ urial_instruct = '# Instruction\n\nBelow is a list of conversations between a hu
 def tokenize_instructions_qwen_chat(
     tokenizer: AutoTokenizer,
     instructions: List[str],
-    urial= False
+    instruct= 'base'
 ) -> Int[Tensor, 'batch_size seq_len']:
-    if urial == False:
+    if instruct == 'qa':
         prompts = ['\n```\n\n# Query:\n```\n' + instruction + '\n```\n\n# Answer:\n```\n' for instruction in instructions]
-    else:
+    elif instruct == 'urial':
         prompts = [urial_instruct + '\n```\n\n# Query:\n```\n' + instruction + '\n```\n\n# Answer:\n```\n' for instruction in instructions]
+    elif instruct == 'base':
+        prompts = [instruction for instruction in instructions]
+
     return tokenizer(prompts, padding=True,truncation=False, return_tensors="pt").input_ids
 
-tokenize_instructions_fn = functools.partial(tokenize_instructions_qwen_chat, tokenizer=model.tokenizer, urial=False)
-tokenize_instructions_fn_urial = functools.partial(tokenize_instructions_qwen_chat, tokenizer=model.tokenizer,urial=True)
+tokenize_instructions_fn = functools.partial(tokenize_instructions_qwen_chat, tokenizer=model.tokenizer, instruct='base')
+tokenize_instructions_fn_qa = functools.partial(tokenize_instructions_qwen_chat, tokenizer=model.tokenizer,instruct='qa')
+tokenize_instructions_fn_urial = functools.partial(tokenize_instructions_qwen_chat, tokenizer=model.tokenizer,instruct='urial')
 
 #%%
 
@@ -106,16 +150,33 @@ def get_generations(
     return generations
 
 
-intervention_generations = get_generations(model, harmless_inst_test[:N_INST_TEST], tokenize_instructions_fn_urial, fwd_hooks=[])
-baseline_generations = get_generations(model, harmless_inst_test[:N_INST_TEST], tokenize_instructions_fn, fwd_hooks=[])
+intervention_generations = get_generations(model,
+                                           harmless_inst_train[:N_INST_TEST],
+                                           tokenize_instructions_fn_urial,
+                                           fwd_hooks=[],
+                                           batch_size=batch_size)
+
+qa_generations = get_generations(model,
+                                 harmless_inst_train[:N_INST_TEST],
+                                 tokenize_instructions_fn_qa,
+                                 fwd_hooks=[],
+                                 batch_size=batch_size)
+
+baseline_generations = get_generations(model,
+                                       harmless_inst_train[:N_INST_TEST],
+                                       tokenize_instructions_fn,
+                                       fwd_hooks=[],
+                                       batch_size=batch_size)
 
 #%%
-# 5.Print Result
+# 7. Print Results
 
 for i in range(N_INST_TEST):
-    print(f"INSTRUCTION {i}: {repr(harmless_inst_test[i])}")
+    print(f"INSTRUCTION {i}: {repr(harmless_inst_train[i])}")
     print(Fore.GREEN + f"BASELINE COMPLETION:")
     print(textwrap.fill(repr(baseline_generations[i]), width=100, initial_indent='\t', subsequent_indent='\t'))
-    print(Fore.RED + f"URIAL COMPLETION:")
+    print(Fore.RED + f"QA COMPLETION:")
+    print(textwrap.fill(repr(qa_generations[i]), width=100, initial_indent='\t', subsequent_indent='\t'))
+    print(Fore.RED + f"INTERVENTION COMPLETION:")
     print(textwrap.fill(repr(intervention_generations[i]), width=100, initial_indent='\t', subsequent_indent='\t'))
     print(Fore.RESET)

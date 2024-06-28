@@ -25,12 +25,12 @@ beam_size = 1
 low_memory = False
 eof_strings = ['# Query', '# User']
 # Load Model
-tokenizer = AutoTokenizer.from_pretrained(model_name, revision=revision, trust_remote_code=False,
+tokenizer = AutoTokenizer.from_pretrained(model_name, revision=revision, trust_remote_code=True,
                                                cache_dir=None, padding_side="left")
 
 torch_dtype = torch.float16
-model = AutoModelForCausalLM.from_pretrained(model_name, revision=revision, trust_remote_code=False,
-                                                  device_map="auto", cache_dir=None, torch_dtype=torch_dtype)
+model = AutoModelForCausalLM.from_pretrained(model_name, revision=revision, trust_remote_code=True,
+                                                  device_map="auto", cache_dir=None,torch_dtype =torch_dtype)
 
 
 # Load data
