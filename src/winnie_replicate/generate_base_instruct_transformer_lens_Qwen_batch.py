@@ -87,6 +87,25 @@ tokenize_instructions_fn = functools.partial(tokenize_instructions_qwen_chat, to
 tokenize_instructions_fn_qa = functools.partial(tokenize_instructions_qwen_chat, tokenizer=model.tokenizer,instruct='qa')
 tokenize_instructions_fn_urial = functools.partial(tokenize_instructions_qwen_chat, tokenizer=model.tokenizer,instruct='urial')
 
+toks = tokenize_instructions_fn_urial(instructions=harmless_inst_train[0])
+prompt = model.to_string(toks[-1])
+print(f"example prompt urial")
+print(prompt)
+print("--------------------------------------------------------------------------------------")
+print("--------------------------------------------------------------------------------------")
+
+toks = tokenize_instructions_fn_qa(instructions=harmless_inst_train[0])
+prompt = model.to_string(toks[-1])
+print(f"example prompt qa")
+print(prompt)
+print("--------------------------------------------------------------------------------------")
+
+
+toks = tokenize_instructions_fn(instructions=harmless_inst_train[0])
+prompt = model.to_string(toks[-1])
+print(f"example prompt base")
+print(prompt)
+print("--------------------------------------------------------------------------------------")
 #%%
 
 # 4. Generation

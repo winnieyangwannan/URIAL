@@ -30,6 +30,7 @@ hf_token = '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'
 max_new_tokens = 500
 N_INST_TEST = 10
 batch_size=2
+torch.set_grad_enabled(False)  # save memory
 
 #%%
 # 1. Load Model

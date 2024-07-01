@@ -52,7 +52,7 @@ if "gpt" in MODEL_PATH:
 
 hf_model = AutoModelForCausalLM.from_pretrained(MODEL_PATH,
                                                 token=hf_token,
-                                                device_map="auto")
+                                                device_map=DEVICE)
 
 model = HookedTransformer.from_pretrained_no_processing(
     model_name=MODEL_PATH,
